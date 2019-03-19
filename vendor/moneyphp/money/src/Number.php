@@ -2,6 +2,8 @@
 
 namespace Money;
 
+use function GuzzleHttp\debug_resource;
+
 /**
  * Represents a numeric value.
  *
@@ -45,15 +47,24 @@ final class Number
      */
     public static function fromString($number)
     {
-        $decimalSeparatorPosition = strpos($number, '.');
-        if ($decimalSeparatorPosition === false) {
-            return new self($number, '');
+        $parts = explode('.', $number);
+        if(count($parts) == 2){
+          $integerPart = str_replace(array(',', '_', ' '), '', $parts[0]);
+          $fractionalPart = $parts[1];
+        }
+        else{
+          $parts = explode(',', $number);
+          if(count($parts) == 2){
+            $integerPart = str_replace(array('.', '_', ' '), '', $parts[0]);
+            $fractionalPart = $parts[1];
+          }
+          else{
+            $integerPart = str_replace(array('_', ' '), '', $number);
+            $fractionalPart = '';
+          }
         }
 
-        return new self(
-            substr($number, 0, $decimalSeparatorPosition),
-            rtrim(substr($number, $decimalSeparatorPosition + 1), '0')
-        );
+        return new self($integerPart, $fractionalPart);
     }
 
     /**
