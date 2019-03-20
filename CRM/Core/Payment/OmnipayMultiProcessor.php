@@ -147,7 +147,7 @@ class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExt
         $isTransparentRedirect = ($response->isTransparentRedirect() || !empty($this->gateway->transparentRedirect));
         $this->cleanupClassForSerialization(TRUE);
         CRM_Core_Session::storeSessionObjects(FALSE);
-        if ($response->isTransparentRedirect()) {
+        if ($isTransparentRedirect) {
           $this->storeTransparentRedirectFormData($params['qfKey'], $response->getRedirectData() + array(
             'payment_processor_id' => $this->_paymentProcessor['id'],
             'post_submit_url' => $response->getRedirectURL(),
@@ -157,7 +157,14 @@ class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExt
           $this->log('success_redirect', ['url' => $url]);
           CRM_Utils_System::redirect($url);
         }
-        $response->redirect();
+        /* @var $response Omnipay\Common\Message\AbstractResponse */
+        if($_REQUEST['returnRedirectUrl']) {
+          echo $response->getRedirectUrl();
+          exit(0);
+        }
+        else {
+          $response->redirect();
+        }
       }
       else {
         return $this->handleError('alert', 'failed processor transaction ' . $this->_paymentProcessor['payment_processor_type'], array($response->getCode() => $response->getMessage()));
