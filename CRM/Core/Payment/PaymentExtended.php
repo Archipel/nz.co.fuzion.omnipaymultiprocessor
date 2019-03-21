@@ -116,9 +116,14 @@ abstract class CRM_Core_Payment_PaymentExtended extends CRM_Core_Payment {
    * @return string
    */
   protected function getReturnSuccessUrl($qfKey) {
+    if(!isset($this->successUrl) && !empty($_REQUEST['paymentSuccessRedirectUrl'])){
+      $this->successUrl = $_REQUEST['paymentSuccessRedirectUrl'];
+    }
+
     if (isset($this->successUrl)) {
       return $this->successUrl;
     }
+
     return CRM_Utils_System::url($this->getBaseReturnUrl(), array(
         '_qf_ThankYou_display' => 1,
         'qfKey' => $qfKey,
