@@ -39,7 +39,7 @@ use Http\Adapter\Guzzle6\Client as HttpPlugClient;
 /**
  * Class CRM_Core_Payment_OmnipayMultiProcessor.
  */
-class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExtended {
+class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExtended implements serializable {
 
   /**
    * For code clarity declare is_test as a boolean.
@@ -58,6 +58,32 @@ class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExt
     'signature',
     'subject',
   );
+
+  /**
+   * Serialize, first removing gateway
+   *
+   * https://www.php.net/manual/en/class.serializable.php
+   *
+   * @return string
+   */
+  public function serialize() {
+    $this->cleanupClassForSerialization(TRUE);
+    return serialize(get_object_vars($this));
+  }
+
+  /**
+   * Unserialize
+   *
+   * https://www.php.net/manual/en/class.serializable.php
+   *
+   * @param string $data
+   */
+  public function unserialize($data) {
+    $values = unserialize($data);
+    foreach ($values as $key=>$value) {
+      $this->$key = $value;
+    }
+  }
 
   /**
    * Omnipay gateway.
@@ -101,6 +127,12 @@ class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExt
    *   The result in an nice formatted array (or an error object)
    */
   public function doPayment(&$params, $component = 'contribute') {
+    // If we have a $0 amount, skip call to processor and set payment_status to Completed.
+    if ($params['amount'] == 0) {
+      return [
+        'payment_status_id' => array_search('Completed', CRM_Contribute_BAO_Contribution::buildOptions('contribution_status_id', 'validate')),
+      ];
+    }
     $params['component'] = strtolower($component);
     $this->initialize($params);
     $this->saveBillingAddressIfRequired($params);
@@ -193,6 +225,16 @@ class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExt
   }
 
   /**
+   * Get data that needs to be passed through to the processor.
+   *
+   * @return array
+   */
+  protected function getProcessorPassThroughFields() {
+    $passThroughFields = $this->getProcessorTypeMetadata('pass_through_fields');
+    return $passThroughFields ? $passThroughFields : [];
+  }
+
+  /**
    * Get core CiviCRM payment fields.
    *
    * @return array
@@ -279,6 +321,7 @@ class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExt
     $jsVariables = [
       'paymentProcessorId' => $this->_paymentProcessor['id'], 'currency' => $form->getCurrency(),
       'is_test' => $this->_is_test,
+      'title' => $form->getTitle(),
     ];
     $clientSideCredentials = $this->getProcessorTypeMetadata('client_side_credentials');
     if ($clientSideCredentials) {
@@ -311,7 +354,9 @@ class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExt
     try {
       foreach ($fields as $name => $value) {
         $fn = "set{$name}";
-        $this->gateway->$fn($value);
+        if (method_exists($this->gateway, $fn)) {
+          $this->gateway->$fn($value);
+        }
       }
       if (\Civi::settings()->get('omnipay_test_mode')) {
         $this->_is_test = TRUE;
@@ -352,12 +397,9 @@ class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExt
       'id' => $this->_paymentProcessor['payment_processor_type_id'],
       'return' => $labelFields)
     );
-    $clientSideCredentials = $this->getProcessorTypeMetadata('client_side_credentials');
 
     foreach ($labelFields as $field => $label) {
-      if (!isset($clientSideCredentials[$field])) {
-        $result[$this->camelFieldName($processorFields[$label])] = $this->_paymentProcessor[$field];
-      }
+      $result[$this->camelFieldName($processorFields[$label])] = $this->_paymentProcessor[$field];
     }
     return $result;
   }
@@ -550,6 +592,7 @@ class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExt
         $creditCardOptions[$field['name']] = $params[$field['name']];
       }
     }
+    $creditCardOptions = array_merge($creditCardOptions, $this->getProcessorPassThroughFields());
 
     CRM_Utils_Hook::alterPaymentProcessorParams($this, $params, $creditCardOptions);
     $creditCardOptions['card'] = array_merge($creditCardOptions['card'], $this->getSensitiveCreditCardObjectOptions($params));
@@ -1024,6 +1067,34 @@ class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExt
   }
 
   /**
+   * Does this processor support cancelling recurring contributions through code.
+   *
+   * If the processor returns true it must be possible to take action from within CiviCRM
+   * that will result in no further payments being processed.
+   *
+   * @return bool
+   */
+  protected function supportsCancelRecurring() {
+    return TRUE;
+  }
+
+  public function cancelSubscription() {
+    // We take no action here - the key thing is that the contribution_recur record is updated.
+  }
+
+  /**
+   * Does this processor support changing the amount for recurring contributions through code.
+   *
+   * If the processor returns true then it must be possible to update the amount from within CiviCRM
+   * that will be updated at the payment processor.
+   *
+   * @return bool
+   */
+  public function supportsEditRecurringContribution() {
+    return TRUE;
+  }
+
+  /**
    * Function to action pre-approval if supported
    *
    * @param array $params
@@ -1130,18 +1201,31 @@ class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExt
    * Action to do after pre-approval. e.g. PaypalRest returns from offsite &
    * hits the billing plan url to confirm.
    *
+   * This is a fairly immature concept - PaypalRest requires that the token
+   * be authorized by us after it is authorized by the user.
+   *
+   * The flow is
+   *   - user clicks paypal button
+   *   - our doPreapprove is called - we get a token from paypal
+   *   - we return the token to the paypal js script
+   *   - the paypal js script launches a pop up where the user enters their approval
+   *   - on close we get call paypal to complete the payment
+   *   - for recurring payments this requires 2 calls - one to complete the recurring authorisation
+   *   and one to process a payment against it.
+   *
+   * This happens before the payment
+   * is processed but after they have submitted the form to us.
+   *
    * @throws \CRM_Core_Exception
    */
-  public function doPostApproval(&$params) {
-    if (!method_exists($this->gateway, 'completeCreateCard')
-      || !empty($params['contributionID'])) {
+  public function doRecurPostApproval(&$params) {
+    if (!$this->getProcessorTypeMetadata('post_recur_action') === 'completeCreateCard') {
       return;
     }
 
-    $planResponse = $this->gateway->completeCreateCard(array(
+    $planResponse = $this->gateway->completeCreateCard(array_merge($this->getProcessorPassThroughFields(), [
       'transactionReference' => $params['token'],
-      -'state' => 'ACTIVE',
-     ))->send();
+     ]))->send();
     if (!$planResponse->isSuccessful()) {
       throw new CRM_Core_Exception($planResponse->getMessage());
       }
@@ -1386,17 +1470,28 @@ class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExt
    * @return array
    */
   protected function doTokenPayment(&$params) {
-    $this->doPostApproval($params);
+    if (!empty($params['is_recur'])) {
+      $this->doRecurPostApproval($params);
+    }
     // and, at least with Way rapid, the createCreditCard call ignores any attempt to authorise.
     // that is likely to be a pattern.
-    $action = CRM_Utils_Array::value('payment_action', $params, empty($params['is_recur']) ? 'completePurchase' : 'purchase');
+    $action = CRM_Utils_Array::value('payment_action', $params, 'purchase');
+    // This is a bit tricky. With Paypal there are 2 flows
+    // 1) you get a token from paypal checkout but there is no recurring - this token needs to be 'completed'
+    // 2) you have a recurring payment token that we can bill against. However, is_recur is not
+    // currently we are using a bit of black magic & setting payment_action in the
+    // ProcessRecurring function  - that has test coverage.
+    // Perhaps we need to set a one-time-token field or incomplete_token field in the first flow?
+    // @todo - revisit.
+    if (method_exists($this->gateway, 'completePurchase') && !isset($params['payment_action']) && empty($params['is_recur'])) {
+      $action = 'completePurchase';
+    }
+
     $params['transactionReference'] = ($params['token']);
     $response = $this->gateway->$action($this->getCreditCardOptions(array_merge($params, ['cardTransactionType' => 'continuous'])))
       ->send();
     $this->logHttpTraffic();
     return $response;
-
-
   }
 
   /**
@@ -1437,6 +1532,30 @@ class CRM_Core_Payment_OmnipayMultiProcessor extends CRM_Core_Payment_PaymentExt
     if (\Civi::settings()->get('omnipay_developer_mode')) {
       $this->getLog()->debug('omnipay_' . $type, $details);
       $this->logHttpTraffic();
+    }
+  }
+
+  /**
+   * Get help text information (help, description, etc.) about this payment,
+   * to display to the user.
+   *
+   * @param string $context
+   *   Context of the text.
+   *   Only explicitly supported contexts are handled without error.
+   *   Currently supported:
+   *   - contributionPageRecurringHelp (params: is_recur_installments, is_email_receipt)
+   *
+   * @param array $params
+   *   Parameters for the field, context specific.
+   *
+   * @return string
+   */
+  public function getText($context, $params) {
+    switch ($context) {
+      case 'contributionPageContinueText' :
+        return ts('Click <strong>Continue</strong> to finalise your payment');
+        break;
+
     }
   }
 

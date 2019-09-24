@@ -40,13 +40,13 @@
  */
 return array(
   array(
-    'name' => 'OmniPay - PayPal_Rest',
+    'name' => 'PayPal Checkout',
     'entity' => 'payment_processor_type',
     'params' => array(
       'version' => 3,
-      'title' => 'OmniPay - PayPal Rest',
+      'title' => 'PayPal Checkout',
       'name' => 'omnipay_PayPal_Rest',
-      'description' => 'PayPal Express (Rest) Payment Processor',
+      'description' => 'PayPal Checkout Payment Processor',
       'user_name_label' => 'clientId',
       'password_label' => 'secret',
       'class_name' => 'Payment_OmnipayMultiProcessor',
@@ -64,6 +64,12 @@ return array(
       'suppress_submit_button' => 1,
       'supports_preapproval' => 1,
       'payment_fields' => ['payment_token', 'PayerID', 'post_authorize'],
+      'pass_through_fields' => [
+        'referrerCode' => 'CiviCRM_SP',
+        'returnUrl' => 'https://www.paypal.com/checkoutnow/error',
+        'cancel_url' => 'https://www.paypal.com/checkoutnow/error',
+      ],
+      'client_side_credentials' => ['user_name'  => 'client_id'],
       'payment_fields_metadata' => [
         'PayerID' => [
           'name' => 'PayerID',
@@ -93,7 +99,7 @@ return array(
       'regions' => [
         //'billing-block-post' => [],
         'billing-block' => [
-          ['markup' => '<div id="paypal-button"></div>', 'name' => 'paypal_button', 'weight' => 400],
+          ['markup' => '<div id="paypal-button-container" class="crm-paypal-buttons"></div>', 'name' => 'paypal_button', 'weight' => 400],
           ['name' => 'paypal_script', 'weight' => 500, 'script' => file_get_contents(__DIR__ . '/js/omnipay_PaypalRest.js')]
          ],
       ],

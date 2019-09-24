@@ -29,17 +29,6 @@ function omnipaymultiprocessor_civicrm_xmlMenu(&$files) {
  * Implementation of hook_civicrm_install
  */
 function omnipaymultiprocessor_civicrm_install() {
-  CRM_Core_DAO::executeQuery("
-    ALTER TABLE `civicrm_payment_processor`
-    CHANGE COLUMN `signature` `signature` LONGTEXT NULL DEFAULT NULL;
-  ");
-  $logExists = CRM_Core_DAO::singleValueQuery("SHOW TABLES LIKE 'log_civicrm_payment_processor'");
-  if ($logExists) {
-    CRM_Core_DAO::executeQuery("
-    ALTER TABLE `log_civicrm_payment_processor`
-    CHANGE COLUMN `signature` `signature` LONGTEXT NULL DEFAULT NULL;
-  ");
-  }
   _omnipaymultiprocessor_civix_civicrm_install();
 }
 
@@ -83,7 +72,17 @@ function omnipaymultiprocessor_civicrm_managed(&$entities) {
  * @param array $permissions
  */
 function omnipaymultiprocessor_civicrm_alterAPIPermissions($entity, $action, &$params, &$permissions) {
-  $params['payment_processor']['preapprove'] = ['make online contributions'];
+  $permissions['payment_processor']['preapprove'] = ['make online contributions'];
+}
+
+/**
+ * Implements hook_alterMenu().
+ *
+ * @param array $items
+ */
+function omnipaymultiprocessor_civicrm_alterMenu(&$items) {
+  $items['civicrm/ajax/rest']['page_callback'] = ['CRM_Utils_RestPreapprove', 'ajax'];
+  $items['civicrm/ajax/rest']['access_arguments'][0][] = 'make online contributions';
 }
 
 function omnipaymultiprocessor_civicrm_navigationMenu(&$menu) {
@@ -102,6 +101,7 @@ function omnipaymultiprocessor_civicrm_alterSettingsFolders(&$metaDataFolders) {
 
 function omnipaymultiprocessor_civicrm_preProcess($formName, &$form) {
   if ($formName === 'CRM_Contribute_Form_Contribution_Main') {
+    $form->assign('isJsValidate', TRUE);
     if (!empty($form->_values['is_recur'])) {
       $recurOptions = [
         'is_recur_interval' =>  $form->_values['is_recur_interval'],

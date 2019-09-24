@@ -42,33 +42,6 @@ class api_PreApproveTest extends \PHPUnit_Framework_TestCase implements Headless
   }
 
   /**
-   * Test the preapproval function.
-   */
-  public function testPreApproveExpress() {
-
-    $this->setMockHttpResponseToArray([
-      'TOKEN' => 'EC-654429990B3545832',
-      'TIMESTAMP' => '2018-07-30T07:11:48Z',
-      'CORRELATIONID' => '2893c8052cf1c',
-      'ACK' => 'Success',
-      'VERSION' => '119.0',
-      'BUILD' => '47733884',
-    ]);
-    Civi::$statics['Omnipay_Test_Config'] = ['client' => $this->getHttpClient()];
-    $processor = $this->callAPISuccess('PaymentProcessor', 'create', [
-      'payment_processor_type_id' => 'omnipay_PayPal_Express',
-    ]);
-    $preApproval = $this->callAPISuccess('PaymentProcessor', 'preapprove', [
-      'payment_processor_id' => $processor['id'],
-      'check_permissions' => TRUE,
-      'amount' => 10,
-      'qfKey' => 'blah',
-      'currency' => 'USD',
-    ]);
-    $this->assertEquals('EC-654429990B3545832', $preApproval['values'][0]['token']);
-  }
-
-  /**
    * Test the pre-approval function.
    */
   public function testPreApproveRest() {
@@ -95,7 +68,7 @@ class api_PreApproveTest extends \PHPUnit_Framework_TestCase implements Headless
       'version' => 3,
       'email' => 'blah@example.org',
     ])['values'][0];
-    $this->assertEquals('PAY-79M30569TN7125128LQGYFLI', $preApproval['token']);
+    $this->assertEquals('EC-9T988732661526452', $preApproval['token']);
 
     $outbound = $this->getRequestBodies();
 
@@ -158,7 +131,7 @@ class api_PreApproveTest extends \PHPUnit_Framework_TestCase implements Headless
 
     $outbound = $this->getRequestBodies();
     $mainRequest = json_decode($outbound[1], TRUE);
-    $this->assertEquals('regular payment', $mainRequest['description']);
+    $this->assertEquals('Regular payment', $mainRequest['description']);
     $this->assertEquals(['payment_method' => 'PAYPAL'], $mainRequest['payer']);
     $this->assertEquals('MERCHANT_INITIATED_BILLING', $mainRequest['plan']['type']);
     $this->assertEquals('INSTANT', $mainRequest['plan']['merchant_preferences']['accepted_pymt_type']);

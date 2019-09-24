@@ -6,16 +6,16 @@ This extension provides support for multiple payment processors in CiviCRM.
 
 The following payment processors are supported:
 
-* [Cybersource](../docs/Cybersource.md)
-* Paybox System
-* GoPay
-* Mollie
-* Payment Express - PXPay, PxFusion
-* NAB Transact
-* Eway RapidDirect, Rapid & Shared
-* PayPal - Standard, Pro, REST & Express
 * Authorize AIM
+* [Cybersource](../docs/Cybersource.md)
+* Eway RapidDirect, Rapid & Shared
+* GoPay
 * Mercanet
+* Mollie
+* NAB Transact
+* Paybox System
+* Payment Express - PXPay, PxFusion
+* [PayPal Checkout](https://github.com/eileenmcnaughton/nz.co.fuzion.omnipaymultiprocessor/blob/master/docs/Paypal.md)
 
 ## Configuration
 
@@ -64,6 +64,11 @@ note - Mercanet does not support '-' characters in this prefix. Untested on othe
 ## Developer help
 It is possible to log http requests and responses to the civicrm_system_log table using the omnipay_developer_mode setting. This is only appropriate for developers. Output is available on the omnilog report if extended reports are installed.
 
+## Site test mode
+It is possible to set the omnipay_test_mode to put all transactions for Omnipay into
+test mode. In this case you can use your test credentials on the live processor
+and all transactions will be sent to your processor's sandbox site.
+
 ### Eway
 
 The gateways supported are:
@@ -91,9 +96,9 @@ token for the transaction.
 is used to confirm the payment at that point.
 
 Known issues
-1) load form is slow when changing processor
-2) We need to validate the form data before submitting to paypal
-3) monthly pay needs testing.
+1) load form is slow when changing processor - oddly same thing not slow on webform - why? We are loading Contribution_Main... slowly?
+2) We need to validate the form data before submitting to paypal.
+
 
 ## Code overrides
 Currently upstream repos are overridden for the following reasons

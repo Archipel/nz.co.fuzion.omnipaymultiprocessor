@@ -1,74 +1,92 @@
+// @see https://developer.paypal.com/docs/checkout/integrate/
+(function($) {
+  var form = $('#billing-payment-block').closest('form');
+  var qfKey = $('[name=qfKey]', form).val();
 
-// https://developer.paypal.com/docs/integration/direct/express-checkout/integration-jsv4/upgrade-integration/
-// https://developer.paypal.com/docs/integration/direct/express-checkout/integration-jsv4/add-paypal-button/
-var formID = CRM.$('#billing-payment-block').closest('form').attr('id');
-var qfKey = CRM.$('#' + formID + ' [name=qfKey]').val();
+  function renderPaypal() {
+    paypal.Buttons({
 
-renderPaypal = function() {
-  paypal.Button.render({
-    env: (CRM.vars.omnipay.is_test ? 'sandbox' : 'production'),
-    payment: function (data, actions) {
 
-      var frequencyInterval = CRM.$('#frequency_interval').val() ? CRM.$('#frequency_interval').val() : 1;
-      var frequencyUnit = CRM.$('#frequency_unit').val() ? CRM.$('#frequency_interval').val() : CRM.vars.omnipay.frequency_unit;
-
-      return new paypal.Promise(function (resolve, reject) {
-        CRM.api3('PaymentProcessor', 'preapprove', {
-            'payment_processor_id': CRM.vars.omnipay.paymentProcessorId,
-            'amount': calculateTotalFee(),
-            'currencyID' : CRM.vars.omnipay.currency,
-             'qf_key': qfKey,
-             'is_recur' : CRM.$('#is_recur').is(":checked"),
-             'installments' : CRM.$('#installments').val(),
-             'frequency_unit' : frequencyUnit,
-             'frequency_interval' : frequencyInterval
-          }
-        ).done(function (result) {
-          if (result['is_error'] === 1) {
-            reject(result['error_message']);
+        onInit: function(data, actions) {
+          // Set up the buttons.
+          if (form.valid()) {
+            actions.enable()
           }
           else {
-            token = result['values'][0]['token'];
-            resolve(token);
+            actions.disable();
           }
-        })
-          .fail(function (result) {
-            reject('Payment failed. Check your site credentials');
+
+          form.on('blur keyup change', 'input', function (event) {
+            if (form.valid()) {
+              actions.enable()
+            }
+            else {
+              actions.disable();
+            }
           });
-      });
-    },
+        },
 
-    onAuthorize: function (data, actions) {
-      var isRecur = 1;
-      var paymentToken = data['billingToken'];
-      if (!paymentToken) {
-        paymentToken = data['paymentID'];
-        isRecur = 0;
-      }
+        createBillingAgreement: function (data, actions) {
 
-      document.getElementById('paypal-button').style.visibility = "hidden";
-      document.getElementById('crm-submit-buttons').style.display = 'block';
-      document.getElementById('PayerID').value = data['payerID'];
-      document.getElementById('payment_token').value = paymentToken;
-      document.getElementById(formID).submit();
-    },
+          var frequencyInterval = $('#frequency_interval').val() || 1;
+          var frequencyUnit = $('#frequency_unit').val() ? $('#frequency_interval').val() : CRM.vars.omnipay.frequency_unit;
+          var paymentAmount = calculateTotalFee();
+          var isRecur = $('#is_recur').is(":checked");
+          var recurText = isRecur ? ' recurring' : '';
 
-    onError: function(err) {
-      console.log(err);
-      alert('Site is not correctly configured to process payments');
-    }
+          return new Promise(function (resolve, reject) {
+            CRM.api3('PaymentProcessor', 'preapprove', {
+                'payment_processor_id': CRM.vars.omnipay.paymentProcessorId,
+                'amount': paymentAmount,
+                'currencyID' : CRM.vars.omnipay.currency,
+                'qf_key': qfKey,
+                'is_recur' : isRecur,
+                'installments' : $('#installments').val(),
+                'frequency_unit' : frequencyUnit,
+                'frequency_interval' : frequencyInterval,
+                'description' : CRM.vars.omnipay.title + ' ' + CRM.formatMoney(paymentAmount) + recurText,
+              }
+            ).then(function (result) {
+                if (result['is_error'] === 1) {
+                  reject(result['error_message']);
+                }
+                else {
+                  token = result['values'][0]['token'];
+                  resolve(token);
+                }
+              })
+              .fail(function (result) {
+                reject('Payment failed. Check your site credentials');
+              });
+          });
+        },
 
-  }, '#paypal-button');
-};
+        onApprove: function (data, actions) {
+          var isRecur = 1;
+          var paymentToken = data['billingToken'];
+          if (!paymentToken) {
+            paymentToken = data['paymentID'];
+            isRecur = 0;
+          }
 
-if (typeof paypal === "undefined") {
-  CRM.$.getScript('https://www.paypalobjects.com/api/checkout.js', function() {
-      renderPaypal();
-  });
-}
-else {
-  renderPaypal();
-}
+          document.getElementById('paypal-button-container').style.visibility = "hidden";
+          document.getElementById('crm-submit-buttons').style.display = 'block';
+          document.getElementById('PayerID').value = data['payerID'];
+          document.getElementById('payment_token').value = paymentToken;
+          form.submit();
+        },
+
+        onError: function(err) {
+          console.log(err);
+          alert('Site is not correctly configured to process payments');
+        }
+
+      })
+      .render('#paypal-button-container');
+  }
+
+  var paypalScriptURL = 'https://www.paypal.com/sdk/js?client-id=' + CRM.vars.omnipay.client_id + '&currency=' + CRM.vars.omnipay.currency + '&commit=false&vault=true';
+  CRM.loadScript(paypalScriptURL, false).done(renderPaypal);
 
 
-
+})(CRM.$);
